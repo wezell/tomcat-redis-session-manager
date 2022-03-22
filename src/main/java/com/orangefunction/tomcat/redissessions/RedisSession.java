@@ -59,10 +59,10 @@ public class RedisSession extends StandardSession {
     super.setAttribute(key, value);
 
     if ( (value != null || oldValue != null)
-         && ( value == null && oldValue != null
-              || oldValue == null && value != null
-              || !value.getClass().isInstance(oldValue)
-              || !value.equals(oldValue) ) ) {
+        && ( value == null && oldValue != null
+        || oldValue == null && value != null
+        || !value.getClass().isInstance(oldValue)
+        || !value.equals(oldValue) ) ) {
       if (this.manager instanceof RedisSessionManager
           && ((RedisSessionManager)this.manager).getSaveOnChange()) {
         try {
@@ -107,14 +107,24 @@ public class RedisSession extends StandardSession {
 
   @Override
   public void writeObjectData(java.io.ObjectOutputStream out) throws IOException {
-    super.writeObjectData(out);
-    out.writeLong(this.getCreationTime());
+    try{
+      super.writeObjectData(out);
+      out.writeLong(this.getCreationTime());
+    }catch (Exception e){
+      log.error(e);
+      throw e;
+    }
   }
 
   @Override
   public void readObjectData(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
-    super.readObjectData(in);
-    this.setCreationTime(in.readLong());
+    try{
+      super.readObjectData(in);
+      this.setCreationTime(in.readLong());
+    }catch (Exception e){
+      log.error(e);
+      throw e;
+    }
   }
 
 }

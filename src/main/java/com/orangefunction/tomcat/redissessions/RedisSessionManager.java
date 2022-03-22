@@ -2,16 +2,11 @@ package com.orangefunction.tomcat.redissessions;
 
 import org.apache.catalina.Lifecycle;
 import org.apache.catalina.LifecycleException;
-import org.apache.catalina.LifecycleListener;
-import org.apache.catalina.util.LifecycleSupport;
 import org.apache.catalina.LifecycleState;
 import org.apache.catalina.Loader;
 import org.apache.catalina.Valve;
 import org.apache.catalina.Session;
 import org.apache.catalina.session.ManagerBase;
-
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.apache.commons.pool2.impl.BaseObjectPoolConfig;
 
 import redis.clients.util.Pool;
 import redis.clients.jedis.JedisPool;
@@ -22,7 +17,6 @@ import redis.clients.jedis.Protocol;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Set;
 import java.util.EnumSet;
@@ -66,10 +60,10 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
   protected JedisPoolConfig connectionPoolConfig = new JedisPoolConfig();
 
   protected RedisSessionHandlerValve handlerValve;
-  protected ThreadLocal<RedisSession> currentSession = new ThreadLocal<>();
-  protected ThreadLocal<SessionSerializationMetadata> currentSessionSerializationMetadata = new ThreadLocal<>();
-  protected ThreadLocal<String> currentSessionId = new ThreadLocal<>();
-  protected ThreadLocal<Boolean> currentSessionIsPersisted = new ThreadLocal<>();
+  protected ThreadLocal<RedisSession> currentSession = new ThreadLocal<RedisSession>();
+  protected ThreadLocal<SessionSerializationMetadata> currentSessionSerializationMetadata = new ThreadLocal<SessionSerializationMetadata>();
+  protected ThreadLocal<String> currentSessionId = new ThreadLocal<String>();
+  protected ThreadLocal<Boolean> currentSessionIsPersisted = new ThreadLocal<Boolean>();
   protected Serializer serializer;
 
   protected static String name = "RedisSessionManager";
@@ -78,10 +72,6 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
 
   protected EnumSet<SessionPersistPolicy> sessionPersistPoliciesSet = EnumSet.of(SessionPersistPolicy.DEFAULT);
 
-  /**
-   * The lifecycle event support for this component.
-   */
-  protected LifecycleSupport lifecycle = new LifecycleSupport(this);
 
   public String getHost() {
     return host;
@@ -231,35 +221,9 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
 
   }
 
-  /**
-   * Add a lifecycle event listener to this component.
-   *
-   * @param listener The listener to add
-   */
-  @Override
-  public void addLifecycleListener(LifecycleListener listener) {
-    lifecycle.addLifecycleListener(listener);
-  }
-
-  /**
-   * Get the lifecycle listeners associated with this lifecycle. If this
-   * Lifecycle has no listeners registered, a zero-length array is returned.
-   */
-  @Override
-  public LifecycleListener[] findLifecycleListeners() {
-    return lifecycle.findLifecycleListeners();
-  }
 
 
-  /**
-   * Remove a lifecycle event listener from this component.
-   *
-   * @param listener The listener to remove
-   */
-  @Override
-  public void removeLifecycleListener(LifecycleListener listener) {
-    lifecycle.removeLifecycleListener(listener);
-  }
+
 
   /**
    * Start this component and implement the requirements
@@ -275,7 +239,7 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
     setState(LifecycleState.STARTING);
 
     Boolean attachedToValve = false;
-    for (Valve valve : getContainer().getPipeline().getValves()) {
+    for (Valve valve : getContext().getPipeline().getValves()) {
       if (valve instanceof RedisSessionHandlerValve) {
         this.handlerValve = (RedisSessionHandlerValve) valve;
         this.handlerValve.setRedisSessionManager(this);
@@ -293,16 +257,23 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
 
     try {
       initializeSerializer();
-    } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+    } catch (ClassNotFoundException e) {
+      log.fatal("Unable to load serializer", e);
+      throw new LifecycleException(e);
+    } catch (InstantiationException e) {
+      log.fatal("Unable to load serializer", e);
+      throw new LifecycleException(e);
+    } catch (IllegalAccessException e) {
       log.fatal("Unable to load serializer", e);
       throw new LifecycleException(e);
     }
 
-    log.info("Will expire sessions after " + getMaxInactiveInterval() + " seconds");
+    log.info("Will expire sessions after " + getContext().getSessionTimeout() + " seconds");
 
     initializeDatabaseConnection();
 
-    setDistributable(true);
+
+    getContext().setDistributable(true);
   }
 
 
@@ -367,7 +338,7 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
         session.setNew(true);
         session.setValid(true);
         session.setCreationTime(System.currentTimeMillis());
-        session.setMaxInactiveInterval(getMaxInactiveInterval());
+        session.setMaxInactiveInterval(getContext().getSessionTimeout());
         session.setId(sessionId);
         session.tellNew();
       }
@@ -535,7 +506,7 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
 
       session.setId(id);
       session.setNew(false);
-      session.setMaxInactiveInterval(getMaxInactiveInterval());
+      session.setMaxInactiveInterval(getContext().getSessionTimeout());
       session.access();
       session.setValid(true);
       session.resetDirtyTracking();
@@ -598,12 +569,12 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
       byte[] originalSessionAttributesHash = sessionSerializationMetadata.getSessionAttributesHash();
       byte[] sessionAttributesHash = null;
       if (
-           forceSave
-           || redisSession.isDirty()
-           || null == (isCurrentSessionPersisted = this.currentSessionIsPersisted.get())
-            || !isCurrentSessionPersisted
-           || !Arrays.equals(originalSessionAttributesHash, (sessionAttributesHash = serializer.attributesHashFrom(redisSession)))
-         ) {
+          forceSave
+              || redisSession.isDirty()
+              || null == (isCurrentSessionPersisted = this.currentSessionIsPersisted.get())
+              || !isCurrentSessionPersisted
+              || !Arrays.equals(originalSessionAttributesHash, (sessionAttributesHash = serializer.attributesHashFrom(redisSession)))
+      ) {
 
         log.trace("Save was determined to be necessary");
 
@@ -623,8 +594,8 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
         log.trace("Save was determined to be unnecessary");
       }
 
-      log.trace("Setting expire timeout on session [" + redisSession.getId() + "] to " + getMaxInactiveInterval());
-      jedis.expire(binaryId, getMaxInactiveInterval());
+      log.trace("Setting expire timeout on session [" + redisSession.getId() + "] to " + getContext().getSessionTimeout());
+      jedis.expire(binaryId, getContext().getSessionTimeout());
 
       error = false;
 
@@ -714,8 +685,8 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
 
     Loader loader = null;
 
-    if (getContainer() != null) {
-      loader = getContainer().getLoader();
+    if (getContext()!= null) {
+      loader = getContext().getLoader();
     }
 
     ClassLoader classLoader = null;
