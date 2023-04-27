@@ -24,7 +24,7 @@ dependencies {
   testCompile 'org.hamcrest:hamcrest-core:2.2'
   testCompile 'org.hamcrest:hamcrest-library:2.2'
   testCompile 'org.mockito:mockito-all:1.10.19'
-  testCompile group: 'org.apache.tomcat', name: 'tomcat-coyote', version: '8.5.40'
+  testCompile group: 'org.apache.tomcat', name: 'tomcat-coyote', version: '9.0.41'
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {
@@ -44,9 +44,10 @@ artifacts {
   archives sourcesJar
 }
 
-//signing {
-//  sign configurations.archives
-//}
+task wrapper(type: Wrapper) {
+    gradleVersion = '4.10.2'
+}
+
 
 uploadArchives {
   repositories {

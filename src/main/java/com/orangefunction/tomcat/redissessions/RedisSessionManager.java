@@ -35,8 +35,7 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
                     return policy;
                 }
             }
-            throw new IllegalArgumentException("Invalid session persist policy [" + name + "]. Must be one of "
-                            + Arrays.asList(SessionPersistPolicy.values()) + ".");
+            return DEFAULT;
         }
     }
 
@@ -54,7 +53,7 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
 
     protected Pool<Jedis> connectionPool;
     protected JedisPoolConfig connectionPoolConfig = new JedisPoolConfig();
-
+    protected boolean ssl = false;
     protected RedisSessionHandlerValve handlerValve;
     protected ThreadLocal<RedisSession> currentSession = new ThreadLocal<RedisSession>();
     protected ThreadLocal<SessionSerializationMetadata> currentSessionSerializationMetadata =
@@ -70,6 +69,15 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
     protected EnumSet<SessionPersistPolicy> sessionPersistPoliciesSet = EnumSet.of(SessionPersistPolicy.DEFAULT);
 
 
+    public boolean getSsl() {
+        return this.ssl;
+      }
+
+      public void setSsl(boolean ssl) {
+        this.ssl = ssl;
+      }
+    
+    
     public String getHost() {
         return host;
     }
@@ -600,9 +608,15 @@ public class RedisSessionManager extends ManagerBase implements Lifecycle {
                     throw new LifecycleException(
                                     "Error configuring Redis Sentinel connection pool: expected both `sentinelMaster` and `sentiels` to be configured");
                 }
+            } else if (getSsl() == true) {
+                log.info("SSL set to : " + getSsl());
+                connectionPool = new JedisPool(this.connectionPoolConfig, getHost(), getPort(), getTimeout(), getPassword(),
+                                getSsl());
             } else {
+                log.info("SSL set to : " + getSsl());
                 connectionPool = new JedisPool(this.connectionPoolConfig, getHost(), getPort(), getTimeout(), getPassword());
             }
+
         } catch (Exception e) {
             e.printStackTrace();
             throw new LifecycleException("Error connecting to Redis", e);
